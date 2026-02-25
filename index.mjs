@@ -317,7 +317,7 @@ async function handleLookup(query) {
   }
 
   const best = bestMatch.match;
-  const ico = best.nationalId;
+  const ico = best.nationalIn || best.nationalId;
   if (!ico) {
     return {
       query,
