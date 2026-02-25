@@ -193,6 +193,11 @@ const TOOLS = [
           type: 'string',
           description: 'Company name or domain to search for (e.g. "alza" or "Alza.cz a.s.")',
         },
+        country: {
+          type: 'string',
+          enum: ['cz', 'sk'],
+          description: 'Country database to search (default: "cz"). Use "sk" for Slovak companies.',
+        },
       },
       required: ['query'],
     },
@@ -200,13 +205,18 @@ const TOOLS = [
   {
     name: 'company',
     description:
-      'Get full company data from BizzMachine by ICO (Czech national ID). Returns revenue, employee count, NACE code, address, and more.',
+      'Get full company data from BizzMachine by ICO (national ID). Returns revenue, employee count, NACE code, address, and more.',
     inputSchema: {
       type: 'object',
       properties: {
         ico: {
           type: 'string',
-          description: 'Czech business identification number (ICO), e.g. "27082440"',
+          description: 'Czech or Slovak business identification number (ICO), e.g. "27082440"',
+        },
+        country: {
+          type: 'string',
+          enum: ['cz', 'sk'],
+          description: 'Country database (default: "cz"). Use "sk" for Slovak companies.',
         },
       },
       required: ['ico'],
@@ -215,13 +225,18 @@ const TOOLS = [
   {
     name: 'lookup',
     description:
-      'Smart lookup: accepts a company name or domain, searches BizzMachine, picks the best match (domain matching first, then name matching), and returns structured data including revenue and employee count.',
+      'Smart lookup: accepts a company name or domain, searches BizzMachine (CZ first, then SK fallback), picks the best match, and returns structured data including revenue and employee count.',
     inputSchema: {
       type: 'object',
       properties: {
         query: {
           type: 'string',
           description: 'Company name or domain to look up (e.g. "mixit.cz" or "Košík")',
+        },
+        country: {
+          type: 'string',
+          enum: ['cz', 'sk', 'auto'],
+          description: 'Country database. "auto" (default) tries CZ first, falls back to SK if not found.',
         },
       },
       required: ['query'],
@@ -230,7 +245,7 @@ const TOOLS = [
   {
     name: 'bulk_lookup',
     description:
-      'Batch lookup for multiple companies. Takes an array of domains/names, runs smart lookup for each. Returns array of results with revenue data. Uses 30-day cache.',
+      'Batch lookup for multiple companies. Takes an array of domains/names, runs smart lookup for each (CZ+SK auto-fallback). Returns array of results with revenue data. Uses 30-day cache.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -251,35 +266,38 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
 
 // --- Tool handlers ---
 
-async function handleSuggest(query) {
-  const cached = await cache.get('suggest', query);
+async function handleSuggest(query, country = 'cz') {
+  const cacheKey = `${country}:${query}`;
+  const cached = await cache.get('suggest', cacheKey);
   if (cached) return cached;
 
-  const results = await api.suggest(query);
-  await cache.set('suggest', query, results);
+  const results = await api.suggest(query, country);
+  await cache.set('suggest', cacheKey, results);
   return results;
 }
 
-async function handleCompany(ico) {
-  const cached = await cache.get('company', ico);
+async function handleCompany(ico, country = 'cz') {
+  const cacheKey = `${country}:${ico}`;
+  const cached = await cache.get('company', cacheKey);
   if (cached) return cached;
 
-  const data = await api.getCompany(ico);
-  await cache.set('company', ico, data);
+  const data = await api.getCompany(ico, country);
+  await cache.set('company', cacheKey, data);
   return data;
 }
 
 /**
  * Smart lookup with domain-first matching strategy.
+ * Supports CZ/SK/auto country selection.
  *
  * For domains:
  *   1. Try suggest with full domain (e.g. "alza.cz")
  *   2. Try suggest with domain name part (e.g. "alza")
  *   3. Match by domain first, then name, then first result
  *
- * For names: standard suggest + first result
+ * For 'auto' mode: tries CZ first, falls back to SK if not found or no revenue.
  */
-async function handleLookup(query) {
+async function handleLookupForCountry(query, country) {
   const queryIsDomain = isDomain(query);
   let suggestions = [];
   let bestMatch = null;
@@ -287,18 +305,14 @@ async function handleLookup(query) {
   if (queryIsDomain) {
     const inputDomain = extractDomain(query);
 
-    // Strategy 1: search with full domain
-    suggestions = await handleSuggest(query);
+    suggestions = await handleSuggest(query, country);
     bestMatch = findBestMatch(suggestions, inputDomain);
 
-    // Strategy 2: if no domain-level match, try domain name part
     if (!bestMatch || bestMatch.matchType !== 'domain') {
       const namePart = domainNamePart(inputDomain);
       if (namePart !== query) {
-        const altSuggestions = await handleSuggest(namePart);
+        const altSuggestions = await handleSuggest(namePart, country);
         const altMatch = findBestMatch(altSuggestions, inputDomain);
-
-        // Prefer domain match from alt over non-domain match from original
         if (altMatch && (altMatch.matchType === 'domain' || !bestMatch)) {
           suggestions = altSuggestions;
           bestMatch = altMatch;
@@ -306,30 +320,26 @@ async function handleLookup(query) {
       }
     }
   } else {
-    suggestions = await handleSuggest(query);
+    suggestions = await handleSuggest(query, country);
     if (suggestions.length) {
       bestMatch = { match: suggestions[0], matchType: 'name' };
     }
   }
 
   if (!bestMatch) {
-    return { query, found: false, suggestions: [], company: null };
+    return { query, country, found: false, suggestions: [], company: null };
   }
 
   const best = bestMatch.match;
   const ico = best.nationalIn || best.nationalId;
   if (!ico) {
     return {
-      query,
-      found: true,
-      matchType: bestMatch.matchType,
-      suggestions: suggestions.slice(0, 5),
-      company: null,
-      error: 'No ICO in best match',
+      query, country, found: true, matchType: bestMatch.matchType,
+      suggestions: suggestions.slice(0, 5), company: null, error: 'No ICO in best match',
     };
   }
 
-  const companyData = await handleCompany(ico);
+  const companyData = await handleCompany(ico, country);
   const revenue = extractRevenue(companyData);
   const employees = extractEmployees(companyData);
   const nace = normalizeNace(
@@ -338,19 +348,38 @@ async function handleLookup(query) {
   );
 
   return {
-    query,
-    found: true,
-    matchType: bestMatch.matchType,
-    match: {
-      ico,
-      name: best.name,
-      website: best.contacts?.website?.url || best.website || null,
-    },
-    revenue,
-    employees,
-    nace,
-    raw: companyData,
+    query, country, found: true, matchType: bestMatch.matchType,
+    match: { ico, name: best.name, website: best.contacts?.website?.url || best.website || null },
+    revenue, employees, nace, raw: companyData,
   };
+}
+
+async function handleLookup(query, country = 'auto') {
+  if (country === 'cz' || country === 'sk') {
+    return handleLookupForCountry(query, country);
+  }
+
+  // Auto mode: try CZ first
+  const czResult = await handleLookupForCountry(query, 'cz');
+
+  // If CZ found with revenue, return it
+  if (czResult.found && czResult.revenue?.amount > 0) {
+    return czResult;
+  }
+
+  // Try SK
+  const skResult = await handleLookupForCountry(query, 'sk');
+
+  // If SK found with revenue, prefer it
+  if (skResult.found && skResult.revenue?.amount > 0) {
+    return skResult;
+  }
+
+  // Return whichever found something (prefer CZ)
+  if (czResult.found) return czResult;
+  if (skResult.found) return skResult;
+
+  return { query, country: 'auto', found: false, suggestions: [], company: null };
 }
 
 async function handleBulkLookup(queries) {
@@ -380,13 +409,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     let result;
     switch (name) {
       case 'suggest':
-        result = await handleSuggest(args.query);
+        result = await handleSuggest(args.query, args.country || 'cz');
         break;
       case 'company':
-        result = await handleCompany(args.ico);
+        result = await handleCompany(args.ico, args.country || 'cz');
         break;
       case 'lookup':
-        result = await handleLookup(args.query);
+        result = await handleLookup(args.query, args.country || 'auto');
         break;
       case 'bulk_lookup':
         result = await handleBulkLookup(args.queries);
