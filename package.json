@@ -2,6 +2,7 @@
   "name": "bizmachine-mcp",
   "version": "1.0.0",
   "type": "module",
+  "main": "./index.mjs",
   "bin": {
     "bizmachine-mcp": "./index.mjs"
   },
@@ -14,6 +15,6 @@
     "url": "https://github.com/davidsimoes/bizmachine-mcp.git"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0"
+    "@modelcontextprotocol/sdk": "^1.27.1"
   }
 }

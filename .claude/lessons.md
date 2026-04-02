@@ -22,7 +22,7 @@
 
 ## 2026-02-26 — Slovak companies need SK endpoint fallback
 
-**Context**: ~15 companies in Petr's Czech e-shop list returned "not found" — many were Slovak entities
+**Context**: ~15 companies in a Czech e-shop list returned "not found" — many were Slovak entities
 **Lesson**: Many Czech-market e-shops are operated by Slovak companies (aboutyou, belenka, dedoles, bloomrobbins, jbl, etc.). The CZ endpoint won't find them.
 **Rule**: Always use `country: 'auto'` mode which tries CZ first, then falls back to SK. This is the default in the `lookup` tool.
 
