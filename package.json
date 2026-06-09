@@ -1,18 +1,22 @@
 {
   "name": "bizmachine-mcp",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "type": "module",
   "main": "./index.mjs",
   "bin": {
     "bizmachine-mcp": "./index.mjs"
   },
-  "description": "MCP server for BizzMachine Czech/Slovak company data API — revenue, employees, NACE codes, and more",
+  "description": "MCP server for BizMachine Czech/Slovak company data API — revenue, employees, NACE codes, and more",
   "keywords": ["mcp", "bizmachine", "czech", "company-data", "revenue", "enrichment"],
   "author": "David Simoes",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/davidsimoes/bizmachine-mcp.git"
+  },
+  "files": ["index.mjs", "lib/"],
+  "scripts": {
+    "test": "node --test"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1"

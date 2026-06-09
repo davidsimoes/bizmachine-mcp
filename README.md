@@ -104,6 +104,16 @@ mcp__bizmachine__company("27082440")
 
 The data each tool can return depends on your BizMachine API plan. The tools above are built on the endpoints available to a standard data key (`suggest`, `aggregated-data`, `indicators`, `owned-companies`). Some BizMachine datasets — detailed financial statements (line items), individual vehicle/fleet records, public-tender and job-posting listings, subsidies, and individual-person contacts — require a higher plan tier and are exposed by BizMachine as separate endpoints. Where only summary/count-level data is available on the standard tier (e.g. fleet size, open-job count, e-shop count), it is surfaced via `metrics` and `profile.signals`.
 
+## Development
+
+Pure data-shaping logic lives in `lib/extract.mjs` (no I/O), the API client in
+`lib/api.mjs`, and MCP wiring in `index.mjs`. Run the unit tests (no API key
+needed — they exercise the pure helpers):
+
+```bash
+npm test
+```
+
 ## License
 
 MIT
