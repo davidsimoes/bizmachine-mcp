@@ -16,7 +16,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprot
 import * as api from './lib/api.mjs';
 import * as cache from './lib/cache.mjs';
 import {
-  isDomain, extractDomain, domainNamePart, findBestMatch,
+  isDomain, extractDomain, domainNamePart, findBestMatch, namesMatch, normalizeName,
   extractRevenue, extractEmployees, normalizeNace, buildProfile,
   extractContacts, extractFinancials, extractRisks, extractMetrics, extractNace,
 } from './lib/extract.mjs';
@@ -274,9 +274,17 @@ async function handleLookupForCountry(query, country) {
       }
     }
   } else {
+    // Name query. Only accept the top suggestion if its name actually relates to
+    // the query — the old code took suggestions[0] unconditionally and labelled
+    // it a 'name' match, so "fakta" happily resolved to an unrelated factoring
+    // company. A wrong company is worse than no company.
     suggestions = await handleSuggest(query, country);
-    if (suggestions.length) {
-      bestMatch = { match: suggestions[0], matchType: 'name' };
+    const inputName = normalizeName(query);
+    for (const s of suggestions) {
+      if (namesMatch(normalizeName(s.name), inputName)) {
+        bestMatch = { match: s, matchType: 'name' };
+        break;
+      }
     }
   }
 

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   isDomain, extractDomain, domainNamePart, normalizeName, normalizeNace,
-  extractRevenue, extractEmployees, findBestMatch,
+  extractRevenue, extractEmployees, findBestMatch, namesMatch,
   agg, fmtMetric, metricScalar, extractContacts, extractRisks,
   extractFinancials, extractNace, buildProfile,
 } from '../lib/extract.mjs';
@@ -131,10 +131,35 @@ test('findBestMatch falls back to a name match', () => {
   assert.equal(r.match.nationalIn, '999');
 });
 
-test('findBestMatch falls back to the first result, and returns null when empty', () => {
+test('findBestMatch returns null when nothing matches, and when empty', () => {
   const suggestions = [{ name: 'Zzz', website: 'zzz.cz', nationalIn: '1' }];
-  assert.equal(findBestMatch(suggestions, 'unrelated.cz').matchType, 'first');
+  assert.equal(findBestMatch(suggestions, 'unrelated.cz'), null);
   assert.equal(findBestMatch([], 'alza.cz'), null);
+});
+
+// Regression: a suggest() call that returns *something* unrelated must not be
+// reported as a hit. tomket.com resolved to "KD holding, s.r.o." (a waste
+// collection firm, revenue 9.6M) purely because it was suggestions[0]; that
+// wrong revenue then flowed into an enrichment run as fact.
+test('findBestMatch does not guess an unrelated first result (tomket.com regression)', () => {
+  const suggestions = [
+    { name: 'KD holding, s.r.o.', website: 'https://tomketpneuservis.cz', nationalIn: '28519710' },
+  ];
+  assert.equal(findBestMatch(suggestions, 'tomket.com'), null);
+});
+
+// Regression: substring containment matched companies that merely shared a
+// fragment. 'doma' must not match 'PRO-DOMA'.
+test('findBestMatch requires a whole-token name hit, not a substring', () => {
+  const suggestions = [{ name: 'PRO-DOMA SE', website: 'prodoma.cz', nationalIn: '2' }];
+  assert.equal(findBestMatch(suggestions, 'doma.cz'), null);
+});
+
+test('findBestMatch still matches a name with a legal-form suffix', () => {
+  const suggestions = [{ name: 'NUTREND D.S., a.s.', website: 'elsewhere.cz', nationalIn: '3' }];
+  const r = findBestMatch(suggestions, 'nutrend.cz');
+  assert.equal(r.matchType, 'name');
+  assert.equal(r.match.nationalIn, '3');
 });
 
 // --- agg() unwrapping (the response-wrapping lesson) ---
